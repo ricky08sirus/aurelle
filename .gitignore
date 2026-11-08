@@ -1,0 +1,42 @@
+@'
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+myvenv/
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Frontend (for later)
+node_modules/
+.next/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and local test files
+*.log
+cookies.txt
+login.json
+'@ | Set-Content .gitignore -Encoding ascii
