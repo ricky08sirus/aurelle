@@ -1,6 +1,6 @@
 # Aurelle Backend
 
-FastAPI backend for user registration and login, using Supabase PostgreSQL for storage and database-backed sessions (no Redis, no Docker required).
+FastAPI backend for user registration and login, using Supabase PostgreSQL for storage and database-backed sessions (no Redis, no Docker required). Product images are stored in Cloudflare R2 and served through a public URL.
 
 ## Features
 
@@ -11,6 +11,8 @@ FastAPI backend for user registration and login, using Supabase PostgreSQL for s
 - Password hashing with Argon2, run in a thread pool so it never blocks the event loop
 - Session tokens stored as SHA-256 hashes, so a leaked database cannot be used to hijack sessions
 - Async database access (SQLAlchemy 2 + asyncpg) with a small connection pool
+- Image upload, replace, delete and list endpoints on Cloudflare R2 (login required)
+- Uploads are checked by real file contents (JPEG, PNG, WEBP, GIF only) and limited to 5 MB
 
 ## Tech stack
 
@@ -22,6 +24,8 @@ FastAPI backend for user registration and login, using Supabase PostgreSQL for s
 | ORM | SQLAlchemy (async) with asyncpg |
 | Password hashing | argon2-cffi |
 | Settings | pydantic-settings (`.env`) |
+| Image storage | Cloudflare R2 (S3-compatible, accessed with boto3) |
+| File uploads | python-multipart |
 
 ## Project structure
 
@@ -31,9 +35,11 @@ backend/
   .env.example         # safe template (committed)
   requirements.txt
   README.md
+  check-db.py          # checks the database connection
+  check_env.py         # checks database + R2 upload, public URL and delete
   app/
     __init__.py
-    main.py            # app entry point, health check
+    main.py            # app entry point, health check, router registration
     config.py          # reads settings from .env
     db.py              # async engine and session
     models.py          # User and UserSession tables
@@ -41,15 +47,18 @@ backend/
     security.py        # Argon2 hashing helpers
     sessions.py        # create, look up, delete sessions
     deps.py            # get_current_user dependency
+    storage.py         # Cloudflare R2 client, validation, upload and delete helpers
     routers/
       __init__.py
       auth.py          # /auth endpoints
+      images.py        # /images endpoints (R2)
 ```
 
 ## Prerequisites
 
 - Python 3.11 or newer
 - A free Supabase account and project
+- A Cloudflare account with R2 enabled
 - Git (optional, for version control)
 
 ## Setup
@@ -80,7 +89,7 @@ pip install -r requirements.txt
 If you are starting from scratch, install the packages directly and then save them:
 
 ```powershell
-pip install fastapi "uvicorn[standard]" "sqlalchemy[asyncio]" asyncpg argon2-cffi pydantic-settings email-validator
+pip install fastapi "uvicorn[standard]" "sqlalchemy[asyncio]" asyncpg argon2-cffi pydantic-settings email-validator boto3 python-multipart python-dotenv
 pip freeze > requirements.txt
 ```
 
@@ -121,7 +130,7 @@ Row level security is enabled so that Supabase's public API cannot read these ta
    ```
    postgresql://postgres.YOURPROJECTREF:[YOUR-PASSWORD]@aws-0-REGION.pooler.supabase.com:5432/postgres
    ```
-3. Copy `.env.example` to `.env` and fill it in:
+3. Copy `.env.example` to `.env` and fill it in (the R2 values are added in the next section):
    ```env
    DATABASE_URL=postgresql+asyncpg://postgres.YOURPROJECTREF:YOURPASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
    COOKIE_SECURE=false
@@ -142,7 +151,87 @@ python -c "from app.config import settings; from sqlalchemy.engine import make_u
 
 Set `COOKIE_SECURE=true` in production (HTTPS). Keep it `false` for local `http://` development, otherwise the browser will not store the cookie.
 
-### 5. Run the server
+### 5. Set up Cloudflare R2 (image storage)
+
+**Create the bucket**
+
+1. In the Cloudflare dashboard, open **R2 Object Storage** and click **Create bucket**.
+2. Name it (this project uses `aurelle-images`) and create it.
+
+**Create an API token**
+
+1. On the **R2 Object Storage** page, open **API Tokens** and click **Create Account API token**.
+2. Set the permission to **Object Read & Write** and apply it to the `aurelle-images` bucket only.
+3. Copy the **Access Key ID** and **Secret Access Key**. The secret is shown only once.
+4. Your **Account ID** is shown on the R2 overview page and in the dashboard URL after `dash.cloudflare.com/`.
+
+**Enable the public URL**
+
+1. Open the bucket, then the **Settings** tab.
+2. Under **Public access**, find **R2.dev subdomain** and click **Enable**. Type `allow` to confirm.
+3. Copy the **Public R2.dev Bucket URL**. It looks like `https://pub-<long-hash>.r2.dev`.
+
+The `r2.dev` URL is rate-limited and meant for development and testing. For production, connect a custom domain such as `images.yourdomain.com` under **Custom Domains** on the same Settings tab. This also gives you Cloudflare caching.
+
+**Add the values to `.env`**
+
+```env
+# Cloudflare R2
+R2_ACCOUNT_ID=your_account_id
+R2_ACCESS_KEY_ID=your_access_key_id
+R2_SECRET_ACCESS_KEY=your_secret_access_key
+R2_BUCKET=aurelle-images
+R2_PUBLIC_BASE_URL=https://pub-your-hash.r2.dev
+```
+
+Use no quotes and no trailing slash on `R2_PUBLIC_BASE_URL`.
+
+**Add the fields to `app/config.py`**
+
+pydantic-settings rejects unknown `.env` keys, so the app will not start unless `Settings` declares the R2 fields:
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    database_url: str
+    cookie_secure: bool = False  # set true in production (HTTPS)
+
+    # Cloudflare R2
+    r2_account_id: str
+    r2_access_key_id: str
+    r2_secret_access_key: str
+    r2_bucket: str
+    r2_public_base_url: str
+
+    model_config = SettingsConfigDict(env_file=".env")
+
+
+settings = Settings()
+```
+
+**Register the router in `app/main.py`**
+
+```python
+from app.routers import auth, images
+
+app = FastAPI()
+app.include_router(auth.router)
+app.include_router(images.router)
+```
+
+**Verify the configuration**
+
+`check_env.py` checks the database connection, uploads a test file to R2, fetches it through the public URL, and deletes it:
+
+```powershell
+python check_env.py
+```
+
+Every line should start with `[ OK ]`.
+
+### 6. Run the server
 
 From the `backend` folder:
 
@@ -165,6 +254,10 @@ Open:
 | POST | `/auth/login` | No | Log in and set the session cookie |
 | GET | `/auth/me` | Cookie | Return the current user |
 | POST | `/auth/logout` | Cookie | Delete the session and clear the cookie |
+| POST | `/images` | Cookie | Upload an image to R2 |
+| PUT | `/images/{key}` | Cookie | Replace an image |
+| DELETE | `/images/{key}` | Cookie | Delete an image |
+| GET | `/images` | Cookie | List images |
 
 ### Register
 
@@ -208,6 +301,46 @@ Open:
 
 `POST /auth/logout` deletes the session row and clears the cookie.
 
+### Upload an image
+
+`POST /images?folder=products` with a multipart form field named `file`.
+
+- `folder`: optional, lowercase letters, digits, `_` and `-`, up to 40 characters (default `general`)
+- Allowed types: JPEG, PNG, WEBP, GIF (checked by file contents, not just the header)
+- Maximum size: 5 MB
+- Returns `201`:
+
+```json
+{
+  "key": "images/products/3f9a...c1.jpg",
+  "url": "https://pub-your-hash.r2.dev/images/products/3f9a...c1.jpg",
+  "size": 48213,
+  "content_type": "image/jpeg"
+}
+```
+
+- Returns `401` if not logged in, `413` if the file is too large, `415` for an unsupported type, `502` if R2 rejects the request
+
+Store the `key` in your database, not the full URL. If you later move to a custom domain, only `R2_PUBLIC_BASE_URL` changes.
+
+### Replace an image
+
+`PUT /images/{key}` with a multipart form field named `file`.
+
+- The new file is uploaded under a new key, then the old file is deleted. A new key avoids stale copies in browser and Cloudflare caches.
+- Returns `200` with `old_key`, `key`, `url`, `size`, `content_type`. Update the key saved in your database with the new `key`.
+- Returns `404` if the old key does not exist
+
+### Delete an image
+
+`DELETE /images/{key}` returns `204`, or `404` if the key does not exist.
+
+### List images
+
+`GET /images?folder=products&limit=50` returns `items` (each with `key`, `url`, `size`, `modified`) and `next_cursor`. Pass `next_cursor` back as `cursor` to get the next page.
+
+The `{key}` in the URL is the full key returned by upload, for example `images/products/3f9a...c1.jpg`, so the path reads `/images/images/products/3f9a...c1.jpg`. That is correct.
+
 ## Testing in PowerShell
 
 Run these in a second terminal while the server is running. Steps 2 to 4 must be in the same window, because the cookie is kept in `$s`.
@@ -241,6 +374,43 @@ Expected results:
 
 You can also test everything interactively at http://127.0.0.1:8000/docs.
 
+### Testing the image endpoints with curl
+
+Use `curl.exe`, not `curl`, because `curl` is an alias for `Invoke-WebRequest` in PowerShell. Run these from one folder so `cookies.txt` is found.
+
+```powershell
+# 1. Log in and save the session cookie (JSON body kept in a file to avoid quoting problems)
+Set-Content -Path login.json -Value '{"email":"asha@example.com","password":"Test@12345"}'
+curl.exe -i -c cookies.txt -X POST "http://127.0.0.1:8000/auth/login" -H "Content-Type: application/json" -d "@login.json"
+
+# 2. Upload (copy the "key" from the response)
+curl.exe -i -b cookies.txt -F "file=@C:\Users\pc\Downloads\image.jpg" "http://127.0.0.1:8000/images?folder=products"
+
+# 3. Check the public URL (expect 200 and content-type: image/jpeg)
+curl.exe -I "https://pub-your-hash.r2.dev/images/products/KEY.jpg"
+
+# 4. Replace (expect 200 and a new key; the old URL now returns 404)
+curl.exe -i -b cookies.txt -X PUT -F "file=@C:\Users\pc\Downloads\other.jpg" "http://127.0.0.1:8000/images/images/products/KEY.jpg"
+
+# 5. Delete (expect 204; the URL now returns 404)
+curl.exe -i -b cookies.txt -X DELETE "http://127.0.0.1:8000/images/images/products/NEW_KEY.jpg"
+
+# 6. List
+curl.exe -b cookies.txt "http://127.0.0.1:8000/images?folder=products"
+```
+
+Expected results:
+
+| Test | Expected |
+|---|---|
+| Upload a JPG while logged in | `201` with key and url, and the url opens the image |
+| Upload without the cookie | `401` |
+| Upload a text file renamed to `.jpg` | `415` |
+| Upload a file over 5 MB | `413` |
+| Replace | `200`, new key, old url returns `404` |
+| Delete | `204`, url returns `404` |
+| Delete a key that does not exist | `404` |
+
 ## How sessions work
 
 1. On login, the server creates a random token and stores only its SHA-256 hash in the `sessions` table, along with the user id and an expiry time.
@@ -249,20 +419,35 @@ You can also test everything interactively at http://127.0.0.1:8000/docs.
 4. Logout deletes the row, so the session stops working immediately.
 5. Expired sessions for a user are removed whenever that user logs in again.
 
+## How image storage works
+
+1. The client sends an image to `POST /images` with the session cookie.
+2. The server checks the login, reads the file (at most 5 MB), and verifies the real file type from its first bytes.
+3. The file is stored in the R2 bucket under a random key such as `images/products/<32 hex characters>.jpg`, with a long cache header, because keys are never overwritten.
+4. The server returns the key and the public URL. The browser loads images directly from Cloudflare, so image traffic does not pass through this server.
+5. Editing replaces the file under a new key and deletes the old one. Deleting removes the object from the bucket.
+
+Only keys generated by this server are accepted by the replace and delete endpoints, which prevents path tricks such as `..`.
+
 ## Performance notes
 
 - Keep the FastAPI server in the same region as the Supabase project. Every query pays the network distance.
 - Argon2 hashing is slow on purpose (about 100 to 300 ms). It runs in a thread pool so other requests are not blocked.
 - The connection pool is small (5 plus 5 overflow) to stay within Supabase's connection limits.
 - Free Supabase projects pause after a period of inactivity. Use an always-on plan for production so the first login does not wait for the database to wake.
+- boto3 is synchronous, so all R2 calls run in a thread pool (`asyncio.to_thread`) and do not block the event loop.
 
 ## Security checklist
 
 - Never commit `.env`. It is listed in `.gitignore`.
-- Reset the database password if it was ever shared, pasted in chat, or committed.
+- Reset the database password and roll the R2 API token if either was ever shared, pasted in chat, printed in logs, or committed.
+- Give the R2 token only **Object Read & Write** on the one bucket it needs.
 - Set `COOKIE_SECURE=true` when serving over HTTPS.
 - Do not put Supabase `anon` or `service_role` keys in a frontend for these tables.
+- Never put the R2 secret key in frontend code. Uploads go through this backend.
 - Do not log passwords or full request bodies.
+- Any logged-in user can currently replace or delete any image. Before going live, add an `images` table with an `owner_id` and check ownership in the replace and delete endpoints.
+- If the frontend runs on a different origin, add `CORSMiddleware` and review the cookie `SameSite` setting, since POST, PUT and DELETE use a cookie session.
 
 ## Troubleshooting
 
@@ -276,4 +461,13 @@ You can also test everything interactively at http://127.0.0.1:8000/docs.
 | `ModuleNotFoundError: app` | Run `uvicorn` from the `backend` folder, and check `app/__init__.py` exists. |
 | `/auth/me` returns 401 right after login | Make sure `COOKIE_SECURE=false` locally, and that you are reusing the same session (`-WebSession $s`). |
 | PowerShell `curl` flags fail | In PowerShell `curl` is an alias. Use `Invoke-RestMethod` or `curl.exe`. |
-
+| Startup error `Extra inputs are not permitted` for `r2_...` | The R2 fields are missing from `Settings` in `app/config.py`. Add them (see step 5). |
+| `KeyError: 'R2_BUCKET'` (or another R2 name) on startup | The key is missing from `.env`, or the file is not in the `backend` folder. |
+| `RuntimeError: Form data requires "python-multipart"` | Run `pip install python-multipart`. |
+| `ModuleNotFoundError: boto3` | Run `pip install boto3` inside the activated virtual environment. |
+| Upload returns `502` with `SignatureDoesNotMatch` or `InvalidAccessKeyId` | The R2 access key ID or secret is wrong, or the token was rolled. Update `.env` and restart. |
+| Upload returns `502` with `AccessDenied` | The token does not have Object Read & Write on this bucket. |
+| Upload returns `502` with `NoSuchBucket` | `R2_BUCKET` does not match the bucket name, or `R2_ACCOUNT_ID` is wrong. |
+| Upload returns `201` but the image URL gives `403` or `404` | The R2.dev subdomain is not enabled on the bucket, or `R2_PUBLIC_BASE_URL` is wrong or has a trailing slash. |
+| Upload returns `415` for a real image | The file is not JPEG, PNG, WEBP or GIF (for example HEIC or AVIF). Convert it first. |
+| Upload returns `401` in curl | The cookie was not sent. Use `-b cookies.txt` and run from the folder that contains it. |

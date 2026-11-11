@@ -3,10 +3,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.routers import auth
+from app.routers import auth, images
 
 app = FastAPI()
 app.include_router(auth.router)
+app.include_router(images.router)
 
 
 @app.get("/")
