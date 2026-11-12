@@ -20,9 +20,9 @@ class RegisterIn(BaseModel):
     @field_validator("phone")
     @classmethod
     def clean_phone(cls, v: str) -> str:
-        v = re.sub(r"[\s\-()]", "", v)
-        if not re.fullmatch(r"\+[1-9]\d{9,14}", v):
-            raise ValueError("Phone must include country code, e.g. +919876543210")
+        v = re.sub(r"\D", "", v)
+        if not re.fullmatch(r"\d{10}", v):
+            raise ValueError("Phone number must be exactly 10 digits")
         return v
 
 
