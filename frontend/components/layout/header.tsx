@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
+  LayoutDashboard,
   CircleUser,
   LogOut,
   Menu,
@@ -125,6 +126,16 @@ export function Header() {
               <div className="absolute right-0 mt-3 w-64 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg">
                 {user ? (
                   <>
+                    {user.is_admin && (
+                      <Link
+                        href="/admin/products"
+                        onClick={() => setOpen(false)}
+                        className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3 text-sm text-neutral-700 transition hover:bg-neutral-50"
+                      >
+                        <LayoutDashboard className="size-4" />
+                        Admin panel
+                      </Link>
+                    )}
                     <Link
                       href="/account"
                       onClick={() => setOpen(false)}

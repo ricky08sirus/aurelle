@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { HeroBanner } from "@/components/sections/hero-banner";
-import { ProductCard } from "@/components/sections/product-card";
-import { products } from "@/lib/products";
+import { HeroCarousel } from "@/components/sections/hero-carousel";
+import { ProductGrid } from "@/components/sections/product-grid";
+import { banners } from "@/lib/banners";
+import { getPublishedProducts } from "@/lib/catalog";
 
 export const metadata: Metadata = {
   title: { absolute: "Aurelle | Premium Protein Powders" },
@@ -10,17 +11,12 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-// Add your banner here later, e.g. image: "/banner.jpg"
-const banner = {
-  image: "/banner.png" as string | undefined,
-  alt: "Aurelle Diwali Dhamaka Sale, up to 50% off on protein powders",
-  href: undefined as string | undefined,
-};
+export default async function HomePage() {
+  const products = await getPublishedProducts();
 
-export default function HomePage() {
   return (
     <main>
-      <HeroBanner image={banner.image} alt={banner.alt} href={banner.href} />
+      <HeroCarousel slides={banners} />
 
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <header className="mb-10 text-center">
@@ -33,13 +29,7 @@ export default function HomePage() {
         </header>
 
         <section aria-label="Protein powders">
-          <ul className="grid grid-cols-2 gap-4 sm:gap-6 md:grid-cols-3 lg:grid-cols-4">
-            {products.map((product) => (
-              <li key={product.id}>
-                <ProductCard product={product} />
-              </li>
-            ))}
-          </ul>
+          <ProductGrid products={products} />
         </section>
       </div>
     </main>

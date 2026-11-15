@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+package-lock.json
+/package-lock.json
 
 # production
 /build
@@ -35,7 +37,7 @@ yarn-error.log*
 
 # vercel
 .vercel
-
+package-lock.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts

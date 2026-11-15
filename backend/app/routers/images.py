@@ -1,11 +1,11 @@
 """
-Image endpoints (upload / replace / delete / list) on Cloudflare R2.
+Image endpoints (upload / replace / delete / list) on Cloudflare R2. Admin only.
 Place at: backend/app/routers/images.py
 """
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app import storage
-from app.deps import get_current_user
+from app.deps import require_admin
 from app.models import User
 
 router = APIRouter(prefix="/images", tags=["images"])
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/images", tags=["images"])
 async def upload_image(
     file: UploadFile = File(...),
     folder: str = Query("general", pattern=storage.FOLDER_PATTERN),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """Upload a new image. Save the returned `key` in your database."""
     data, ctype = await storage.read_and_validate(file)
@@ -28,7 +28,7 @@ async def upload_image(
 async def replace_image(
     key: str,
     file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     """
     Edit = replace. Uploads the new file under a NEW key, then deletes the old one,
@@ -53,7 +53,7 @@ async def replace_image(
 
 
 @router.delete("/{key:path}", status_code=204)
-async def delete_image(key: str, user: User = Depends(get_current_user)):
+async def delete_image(key: str, user: User = Depends(require_admin)):
     key = storage.validate_key(key)
     if not await storage.exists(key):
         raise HTTPException(404, "Image not found")
@@ -65,7 +65,7 @@ async def list_images(
     folder: str = Query("", pattern=r"^[a-z0-9_-]{0,40}$"),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     resp = await storage.list_objects(folder, limit, cursor)
     return {

@@ -5,6 +5,21 @@ export const endpoints = {
   me: "/api/auth/me",
 };
 
+/** Turns a FastAPI error response into one readable sentence. */
+export async function readError(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    if (typeof data.detail === "string") return data.detail;
+    if (Array.isArray(data.detail) && data.detail[0]) {
+      const first = data.detail[0];
+      const msg = String(first.msg ?? "").replace(/^Value error, /, "");
+      const field = Array.isArray(first.loc) ? first.loc.filter((p: unknown) => p !== "body").join(" → ") : "";
+      return field ? `${field}: ${msg}` : msg;
+    }
+  } catch {}
+  return "Something went wrong. Please try again.";
+}
+
 export async function apiFetch<T = unknown>(
   url: string,
   options: RequestInit = {},
@@ -15,16 +30,7 @@ export async function apiFetch<T = unknown>(
     ...options,
   });
 
-  if (!res.ok) {
-    let message = "Something went wrong. Please try again.";
-    try {
-      const data = await res.json();
-      if (typeof data.detail === "string") message = data.detail;
-      else if (Array.isArray(data.detail)) message = data.detail[0]?.msg ?? message;
-    } catch {}
-    throw new Error(message);
-  }
-
+  if (!res.ok) throw new Error(await readError(res));
   if (res.status === 204) return null as T;
   return res.json();
 }

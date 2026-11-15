@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { apiFetch, endpoints } from "@/lib/api";
 
-export type User = { name: string; email: string };
+export type User = { name: string; email: string; is_admin?: boolean };
 
 type AuthContextType = {
   user: User | null;

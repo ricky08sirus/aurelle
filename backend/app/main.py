@@ -3,11 +3,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.routers import auth, images
+from app.routers import admin_products, auth, images, products
 
-app = FastAPI()
+app = FastAPI(title="Aurelle API")
 app.include_router(auth.router)
 app.include_router(images.router)
+app.include_router(products.router)
+app.include_router(admin_products.router)
 
 
 @app.get("/")
