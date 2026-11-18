@@ -49,7 +49,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto grid h-20 max-w-7xl grid-cols-[1fr_auto] items-center gap-4 px-4 sm:px-6 md:h-28 md:grid-cols-[1fr_auto_1fr] lg:px-8">
+      <div className="mx-auto grid h-20 w-full max-w-[1600px] grid-cols-[1fr_auto] items-center gap-4 px-5 sm:px-8 md:h-28 md:grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] lg:px-12 xl:px-16">
         {/* Logo */}
         <Link
           href="/"
@@ -67,8 +67,8 @@ export function Header() {
         </Link>
 
         {/* Main menu (desktop) */}
-        <nav aria-label="Main" className="hidden md:block">
-          <ul className="flex items-center gap-8 lg:gap-10">
+        <nav aria-label="Main" className="hidden justify-self-center md:block">
+          <ul className="flex items-center justify-center gap-6 lg:gap-9 xl:gap-12">
             {navLinks.map((link) => (
               <li key={link.href}>
                 <Link

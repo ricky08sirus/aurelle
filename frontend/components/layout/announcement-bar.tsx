@@ -1,7 +1,26 @@
+
+const announcementText = [
+  "AURELLE SALE IS LIVE! ✨",
+  "UP TO 50% OFF",
+  "FUEL YOUR FITNESS JOURNEY 💪",
+  "SHOP NOW",
+];
+
 export function AnnouncementBar() {
   return (
-    <div className="bg-navy px-4 py-2 text-center text-xs font-medium tracking-[0.25em] text-white uppercase">
-      AURELLE DIWALI DHAMAKA SALE IS LIVE! | UP TO 50% OFF
+    <div className="announcement-bar">
+      <div className="announcement-track">
+        {[1, 2, 3, 4].map((group) => (
+          <div className="announcement-group" key={group}>
+            {announcementText.map((text, index) => (
+              <span key={index}>
+                {text}
+                <span className="announcement-divider">✦</span>
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
